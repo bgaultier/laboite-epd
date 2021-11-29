@@ -1,6 +1,6 @@
 /*
-  LaBoiteEPD.h - Library for laboite EPD edition.
-  Created by Baptiste Gaultier, November 24, 2021.
+  LaBoiteEPD.h - Library for laboite maker edition.
+  Created by Baptiste Gaultier, November 2, 2018.
   Released under GPLv3
 */
 
@@ -15,6 +15,9 @@
 #include <Preferences.h>
 #include "LaBoiteEPD.h"
 
+#define PUSHBUTTON_PIN  12 // Attach pushbutton to pin 12 from GND
+#define LED_PIN         26 // Attach LED to pin 26 and GND
+#define MATRIX_CS_PIN   4  // Attach CS to this pin, DIN to MOSI and CLK to SCK (cf http://arduino.cc/en/Reference/SPI)
 #define MATRIX_COLUMNS  4
 #define MATRIX_ROWS     2
 #define BITMAP          0
@@ -137,27 +140,6 @@ void BoiteEPD::begin(String server)
   Serial.println();
   Serial.println("- apikey:" + _apikey);
 
-
-#ifdef DEBUG
-    Serial.print("EPD init...");
-#endif
-  DEV_Module_Init();
-
-  EPD_5IN65F_Init();
-	EPD_5IN65F_Clear(EPD_5IN65F_WHITE);
-	DEV_Delay_ms(100);
-
-  matrix.setFont(&XWindowSystemFont5x7);
-
-  matrix.fillScreen(LOW);
-  matrix.drawBitmap(0, 0, wifiBitmap, 8, 6, HIGH);
-  String message = "start";
-  for (int c = 0; c < message.length(); c++ )
-    matrix.drawChar(8+c*5, 6, message.charAt(c), HIGH, LOW, 1);
-  matrix.write();
-
-  Paint_DrawString_EN(10, 20, "Trying to connect to the saved ssid " + _ssid, &Font12, WHITE, BLACK);
-
   if(_ssid.length() && _pass.length() && _apikey.length()) {
 #ifdef DEBUG
     Serial.print("Trying to connect to the saved ssid ");
@@ -170,12 +152,6 @@ void BoiteEPD::begin(String server)
 #ifdef DEBUG
         Serial.println();
         Serial.println("Connected!");
-        matrix.fillScreen(LOW);
-        matrix.drawBitmap(0, 0, wifiBitmap, 8, 6, HIGH);
-        message = "OK!";
-        for (int c = 0; c < message.length(); c++ )
-          matrix.drawChar(8+c*5, 6, message.charAt(c), HIGH, LOW, 1);
-        matrix.write();
 #endif
         confMode = false;
         _startWebServer();
@@ -203,12 +179,6 @@ void BoiteEPD::begin(String server)
 #ifdef DEBUG
     Serial.println(F("Configuration mode activated!"));
 #endif
-    matrix.fillScreen(LOW);
-    matrix.drawBitmap(0, 0, wifiBitmap, 8, 6, HIGH);
-    message = "conf.";
-    for (int c = 0; c < message.length(); c++ )
-      matrix.drawChar(8+c*5, 6, message.charAt(c), HIGH, LOW, 1);
-    matrix.write();
     WiFi.mode(WIFI_MODE_STA);
     WiFi.disconnect();
     delay(100);
@@ -420,11 +390,7 @@ void BoiteEPD::drawTiles()
 
   for(int i=0;i<TILES_ARRAY_SIZE; i++) {
     if(_tiles[i].getId()) {
-      matrix.fillScreen(LOW);
-      _currentIntensity = _tiles[i].getBrightness();
-      matrix.setIntensity(_currentIntensity);
       drawTile(i);
-      _drawTileTransition(i);
     }
   }
 }
@@ -436,171 +402,11 @@ void BoiteEPD::drawTile(int id)
   if(confMode)
     dnsServer.processNextRequest();
   webServer.handleClient();
-
-  boolean isScrolling = false;
   for(int i=0; i<ITEMS_ARRAY_SIZE; i++) {
     Item item = _tiles[id].items[i];
-    if(item.getContent() != "") {
-      if(item.getType() == TEXT) {
-        // item is a text
-        if(item.getContent().length() < 6) {
-          for (int c = 0; c < item.getContent().length(); c++ )
-            matrix.drawChar(item.getX()+c*5, item.getY()+6, item.getContent().charAt(c), HIGH, LOW, 1);
-        }
-        else {
-          // text will be scrolling
-          isScrolling = true;
-          for(int i=MATRIX_COLUMNS*8; i > int(item.getContent().length())*-5; i--) {
-            matrix.fillRect(0, item.getY(), 32, 7, LOW);
-            for (int c = 0; c < item.getContent().length(); c++ )
-              matrix.drawChar(i+c*5, item.getY()+6, item.getContent().charAt(c), HIGH, LOW, 1);
-            matrix.write();
-            delay(int(_tiles[id].getDuration()/(32+int(item.getContent().length())*5)));
-          }
-        }
-      }
-      else {
-        // item is a bitmap
-        byte bitmap[64];
-        for (int i=0, c = 2; c < item.getContent().length(); i++, c+=2) {
-          // TODO
-          //Serial.print(item.getContent().charAt(c));
-          //Serial.println(item.getContent().charAt(c+1));
-          String bitmapByte = item.getContent().substring(c, c+2);
-          bitmap[i] = strtol(bitmapByte.c_str(), NULL, 16);
-        }
-        matrix.drawBitmap(item.getX(), item.getY(), bitmap, item.getWidth (), item.getHeight(), HIGH);
-      }
 #ifdef DEBUG
       Serial.println(item.asString());
 #endif
-    }
-  }
-  matrix.write();
-  if(!isScrolling)
-    delay(_tiles[id].getDuration());
-}
-
-void BoiteEPD::drawTile(int id, int x, int y)
-{
-  for(int i=0; i<ITEMS_ARRAY_SIZE; i++) {
-    Item item = _tiles[id].items[i];
-    if(item.getContent() != "") {
-      if(item.getType() == TEXT) {
-        // item is a text
-        if(item.getContent().length() < 6) {
-          for (int c = 0; c < item.getContent().length(); c++ )
-            matrix.drawChar(item.getX()+c*5+x, item.getY()+6+y, item.getContent().charAt(c), HIGH, LOW, 1);
-        }
-      }
-      else {
-        // item is a bitmap
-        byte bitmap[64];
-        for (int i=0, c = 2; c < item.getContent().length(); i++, c+=2) {
-          String bitmapByte = item.getContent().substring(c, c+2);
-          bitmap[i] = strtol(bitmapByte.c_str(), NULL, 16);
-        }
-        matrix.drawBitmap(item.getX()+x, item.getY()+y, bitmap, item.getWidth(), item.getHeight(), HIGH);
-      }
-#ifdef DEBUG
-      Serial.println(item.asString());
-#endif
-    }
-  }
-  matrix.write();
-}
-
-void BoiteEPD::_drawTileTransition(int id)
-{
-  switch(_tiles[id].getTransition()) {
-    case 1:
-      // fadeout
-      for(int i=_currentIntensity; i>=0; i--) {
-        matrix.setIntensity(i);
-        delay(50);
-      }
-      // fadein next tile (if there is one)
-      if(_tiles[id+1].getId()) {
-        matrix.fillScreen(LOW);
-        drawTile(id+1, 0, 0);
-        for(byte i=0; i<=_tiles[id+1].getBrightness(); i++) {
-          matrix.setIntensity(i);
-          delay(50);
-        }
-      }
-      break;
-    case 2:
-      for(int x=MATRIX_COLUMNS*8; x>0; x--) {
-        matrix.fillScreen(LOW);
-        drawTile(id, x-MATRIX_COLUMNS*8, 0);
-        if(_tiles[id+1].getId()) {
-          drawTile(id+1, x, 0);
-          _fade(id+1);
-        }
-        else {
-          drawTile(0, x-1, 0);
-          _fade(0);
-        }
-        matrix.write();
-      }
-      break;
-    case 3:
-      for(int x=0; x<MATRIX_COLUMNS*8; x++) {
-        matrix.fillScreen(LOW);
-        drawTile(id, x, 0);
-        if(_tiles[id+1].getId()) {
-          drawTile(id+1, x-MATRIX_COLUMNS*8, 0);
-          _fade(id+1);
-        }
-        else {
-          drawTile(0, x-MATRIX_COLUMNS*8-1, 0);
-          _fade(0);
-        }
-        matrix.write();
-      }
-      break;
-    case 4:
-        for(int y=MATRIX_ROWS*8; y>0; y--) {
-          matrix.fillScreen(LOW);
-          drawTile(id, 0, y-MATRIX_ROWS*8);
-          if(_tiles[id+1].getId()) {
-            drawTile(id+1, 0, y);
-            _fade(id+1);
-          }
-          else {
-            drawTile(0, 0, y);
-            _fade(0);
-          }
-          matrix.write();
-        }
-        break;
-    case 5:
-      for(int y=0; y<=MATRIX_ROWS*8; y++) {
-        matrix.fillScreen(LOW);
-        drawTile(id, 0, y);
-        if(_tiles[id+1].getId()) {
-          drawTile(id+1, 0, y-MATRIX_ROWS*8);
-          _fade(id+1);
-        }
-        else {
-          drawTile(0, 0, y-MATRIX_ROWS*8);
-          _fade(0);
-        }
-        matrix.write();
-      }
-      break;
-    }
-}
-
-void BoiteEPD::_fade(int id) {
-  if(_currentIntensity == _tiles[id].getBrightness()) return;
-  if(_currentIntensity < _tiles[id].getBrightness()) {
-    _currentIntensity++;
-    matrix.setIntensity(_currentIntensity);
-  }
-  else {
-    _currentIntensity--;
-    matrix.setIntensity(_currentIntensity);
   }
 }
 
